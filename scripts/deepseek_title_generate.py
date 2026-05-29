@@ -6,9 +6,11 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 
 DEFAULT_BASE_URL = "https://api.deepseek.com"
@@ -25,7 +27,7 @@ SYSTEM_PROMPT = """你是香港富豪酒店小红书标题优化专家。
 任务：根据用户提供的正文或 brief，生成高信息密度的小红书标题。
 硬规则：
 1. 每个标题不超过20个字符。
-2. 每个标题默认只出现一次“香港”。
+2. 每个标题必须包含且只包含一次“香港”。
 3. 不使用emoji。
 4. 每个标题优先16-20字符，尽量18-20字符。
 5. 每个标题优先使用1-2个结构标点：丨、+、，、！。
@@ -58,6 +60,7 @@ def build_user_prompt(note: str, count: int) -> str:
 - 尽量选用正文里的酒店名、地标和交通信息。
 - 如果正文没有行程天数，可以使用2天1夜、3天2晚、5天4晚、7天6晚等旅游标题语感，但不要虚构价格、距离或权益。
 - 输出前请自行检查字符数，标点也算1个字符。
+- 每条标题必须包含且只包含一次“香港”；不符合就重写，不要输出。
 """
 
 
@@ -80,6 +83,58 @@ def post_json(url: str, api_key: str, payload: dict, timeout: int) -> dict:
         raise SystemExit(f"HTTP {exc.code}: {detail}") from exc
     except urllib.error.URLError as exc:
         raise SystemExit(f"REQUEST FAILED: {exc}") from exc
+
+
+def find_deepseek_use_script() -> Path | None:
+    home = Path.home()
+    candidates = [
+        home / ".agents" / "skills" / "deepseek-use" / "scripts" / "deepseek_use.py",
+        home / ".codex" / "skills" / "deepseek-use" / "scripts" / "deepseek_use.py",
+    ]
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def call_global_deepseek_use(args: argparse.Namespace, note: str) -> int:
+    script = find_deepseek_use_script()
+    if not script:
+        raise SystemExit(
+            f"ERROR: set {args.api_key_env}, or install the global deepseek-use skill before calling DeepSeek."
+        )
+
+    prompt = build_user_prompt(note, args.count)
+    cmd = [
+        sys.executable,
+        str(script),
+        "--system",
+        SYSTEM_PROMPT,
+        "--model",
+        args.model,
+        "--max-tokens",
+        "1200",
+    ]
+    if args.raw:
+        cmd.append("--raw")
+    try:
+        result = subprocess.run(
+            cmd,
+            input=prompt,
+            text=True,
+            capture_output=True,
+            timeout=args.timeout + 10,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise SystemExit(f"ERROR: DeepSeek global skill timed out after {args.timeout + 10}s.") from exc
+
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip()
+        raise SystemExit(f"ERROR: DeepSeek global skill failed: {detail}")
+
+    print(result.stdout.rstrip())
+    return 0
 
 
 def parse_args() -> argparse.Namespace:
@@ -113,7 +168,7 @@ def main() -> int:
 
     api_key = os.environ.get(args.api_key_env)
     if not api_key:
-        raise SystemExit(f"ERROR: set {args.api_key_env} before calling DeepSeek.")
+        return call_global_deepseek_use(args, note)
 
     endpoint = args.base_url.rstrip("/") + "/chat/completions"
     response = post_json(endpoint, api_key, payload, args.timeout)
