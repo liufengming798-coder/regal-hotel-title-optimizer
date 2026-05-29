@@ -1,6 +1,6 @@
 interface:
   display_name: "富豪酒店标题优化技能"
-  short_description: "生成 20 字符内高密度香港酒店标题"
-  default_prompt: "Use $regal-hotel-title-optimizer to create 10 high-density Xiaohongshu titles for a Hong Kong Regal hotel note, each under 20 characters, containing 香港 once, and using natural separators like 丨, +, ，, or !."
+  short_description: "用 DeepSeek 生成高密度香港酒店标题"
+  default_prompt: "Use $regal-hotel-title-optimizer to call DeepSeek and create 10 high-density Xiaohongshu titles for a Hong Kong Regal hotel note, each under 20 characters, containing 香港 once, and using natural separators like 丨, +, ，, or !."
 policy:
   allow_implicit_invocation: true
